@@ -1,0 +1,28 @@
+# Python caches and compiled files
+__pycache__/
+*.py[cod]
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# Build / Distribution
+dist/
+build/
+*.egg-info/
+
+# Testing & Tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
