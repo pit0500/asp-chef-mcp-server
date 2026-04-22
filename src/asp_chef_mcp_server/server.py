@@ -4,14 +4,6 @@ ASP Chef MCP Server
 Dual-transport server:
   • STDIO  → Claude Desktop (MCP protocol via FastMCP)
   • HTTP   → ASP Chef browser UI (SSE commands + /sync endpoint via FastAPI)
-
-Architecture
-------------
-Claude Desktop  ──STDIO──►  FastMCP (MCP tools)
-                                │
-                                │  asyncio.Queue (command bus)
-                                │
-ASP Chef UI  ◄──SSE────  FastAPI  ◄──POST /sync──  ASP Chef UI
 """
 
 from __future__ import annotations
@@ -20,6 +12,7 @@ import asyncio
 import json
 import logging
 import threading
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
@@ -38,15 +31,16 @@ log = logging.getLogger("asp-chef-mcp")
 recipe_state = RecipeState()
 
 _client_queues: set[asyncio.Queue[dict]] = set()
-
 _event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+_pending_requests: dict[str, tuple[threading.Event, dict]] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _event_loop
     _event_loop = asyncio.get_running_loop()
-    log.info("FastAPI ready - SSE bridge is live on http://localhost:8000")
+    log.info("FastAPI ready - SSE bridge is live on http://127.0.0.1:8000")
     yield
 
 
@@ -63,12 +57,6 @@ http_app.add_middleware(
 
 @http_app.get("/events")
 async def sse_events(request: Request):
-    """
-    Server-Sent Events endpoint.
-    The ASP Chef Svelte component connects here and receives recipe commands.
-    Each command is a JSON object:  { "action": "...", ...params }
-    """
-
     client_queue: asyncio.Queue[dict] = asyncio.Queue()
     _client_queues.add(client_queue)
 
@@ -90,34 +78,32 @@ async def sse_events(request: Request):
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @http_app.post("/sync")
 async def sync_recipe(request: Request):
-    """
-    The Svelte component POSTs the current recipe state here after every
-    mutation so the MCP server always has an up-to-date snapshot.
-    """
     body = await request.json()
-    recipe_state.update(body.get("recipe", []), body.get("connector_index", -1))
-    log.info("Recipe synced: %d operations", len(recipe_state.ingredients))
+    errors = body.get("errors", [])
+    
+    recipe_state.update(body) 
+    
+    req_id = body.get("request_id")
+    if req_id and req_id in _pending_requests:
+        evt, result_box = _pending_requests[req_id]
+        result_box["errors"] = errors
+        evt.set()
+
     return {"ok": True}
 
 
 @http_app.post("/docs")
 async def sync_docs(request: Request):
-    """
-    Receives the bulk operation documentation from the Svelte UI once upon connection.
-    """
     body = await request.json()
     if "docs" in body:
         recipe_state.set_doc(body.get("docs"))
-    log.info("Docs synced: %d operations", len(recipe_state.docs))
+    log.info("Docs synced: %d operations loaded.", len(recipe_state.docs))
     return {"ok": True}
 
 
@@ -126,14 +112,18 @@ async def health():
     return {"status": "ok", "operations": len(recipe_state.ingredients)}
 
 
-def _send_command(cmd: dict) -> None:
-    """
-    Thread-safe helper. Can be called from the STDIO FastMCP thread.
-    Schedules the command onto the asyncio queue that feeds SSE clients.
-    """
+def _send_command(cmd: dict) -> str | None:
+    """Invia il comando via SSE e attende l'esito. Ritorna None se successo, altrimenti stringa di errore."""
     if _event_loop is None:
-        log.warning("Event loop not ready - dropping command %s", cmd.get("action"))
-        return
+        log.warning("Event loop not ready - dropping command")
+        return "System error: Event loop not ready"
+
+    req_id = str(uuid.uuid4())
+    cmd["request_id"] = req_id
+
+    evt = threading.Event()
+    result_box = {}
+    _pending_requests[req_id] = (evt, result_box)
 
     async def _dispatch():
         for q in _client_queues:
@@ -141,112 +131,94 @@ def _send_command(cmd: dict) -> None:
 
     asyncio.run_coroutine_threadsafe(_dispatch(), _event_loop)
 
+    success = evt.wait(timeout=3.0)
+    _pending_requests.pop(req_id, None)
 
-mcp = FastMCP(
-    "ASP Chef",
-    instructions=ASP_CHEF_DOCS,
-)
+    if not success:
+        return "Timeout: Action sent, but did not receive confirmation from browser. Recipe might still be processing."
+
+    # Controlla se la pipeline ha generato errori dopo il comando
+    errors = result_box.get("errors", [])
+    if errors:
+        err_msg = next((e for e in errors if e), None)
+        if err_msg:
+            return f"Pipeline compilation failed with error: {err_msg}"
+
+    return None
+
+mcp = FastMCP("ASP Chef", instructions=ASP_CHEF_DOCS)
 
 
 @mcp.tool()
 def get_recipe() -> str:
-    """
-    Returns the current state of the ASP Chef recipe as a JSON array.
-    Each element has: id (string), operation (string), options (object).
-    Use this tool first to understand the current pipeline before making changes.
-    """
-    return json.dumps(recipe_state.ingredients, indent=2)
+    """Get the current state of the ASP Chef recipe pipeline (list of active ingredients)."""
+    return json.dumps(recipe_state.raw_state, indent=2)
 
 
 @mcp.tool()
 def get_operation_docs(operation: str) -> str:
-    """
-    Returns detailed documentation and option schemas for a specific operation.
-    """
+    """Get the detailed documentation and expected options schema for a specific operation."""
     return recipe_state.get_operation_doc(operation)
 
 
 @mcp.tool()
-def get_operation_catalogue() -> str:
-    """
-    Returns a list of all available ASP Chef operations.
-    Use this to discover which operations exist, then use get_operation_docs(operation)
-    to get detailed information before adding them to the recipe.
-    """
-    operations = sorted(recipe_state.docs.keys())
-    if not operations:
-        return "No operations are currently loaded in the documentation dictionary."
-    return "Available operations:\n- " + "\n- ".join(operations)
+def search_operations(query: str) -> str:
+    """Search for operations matching a keyword in their name or documentation."""
+    query = query.lower()
+    results = []
+    for op, doc in recipe_state.docs.items():
+        if query in op.lower() or query in doc.lower():
+            results.append(op)
+
+    if not results:
+        return f"No operations found matching '{query}'."
+    return "Found operations:\n- " + "\n- ".join(results)
 
 
 @mcp.tool()
-def set_input(input_text: str) -> str:
-    """
-    Sets the contents of the ASP Chef input panel.
+def get_operation_categories() -> str:
+    """Explore available tools grouped alphabetically to find the right operation."""
+    operations = sorted(recipe_state.docs.keys())
+    if not operations:
+        return "No operations are currently loaded."
 
-    Parameters
-    ----------
-    input_text : str
-        The raw text to place into the input panel. This is the initial data
-        that will be processed by the first operation in the recipe pipeline.
-    """
-    _send_command({"action": "set_input", "input": input_text})
-    return f"✓ Queued set_input with length {len(input_text)}."
+    groups: dict[str, list[str]] = {}
+    for op in operations:
+        letter = op[0].upper() if op else "#"
+        if not letter.isalpha():
+            letter = "#"
+        groups.setdefault(letter, []).append(op)
+
+    result = "Available operations grouped alphabetically:\n\n"
+    for letter, ops in groups.items():
+        result += f"[{letter}]\n- " + "\n- ".join(ops) + "\n\n"
+    return result.strip()
+
+
+@mcp.tool()
+def set_input(input_text: str, encode: bool = False) -> str:
+    """Sets the input text for the pipeline, optionally encoding it first."""
+    err = _send_command({"action": "set_input", "input": input_text, "encode": encode})
+    if err:
+        return f"❌ {err}"
+    return f"✓ set_input applied with length {len(input_text)} (encoded: {encode})."
 
 
 @mcp.tool()
 def set_global_option(option: str, value: bool) -> str:
-    """
-    Set global user interface and baking options for the ASP Chef recipe panel.
-
-    Parameters
-    ----------
-    option : str
-        The global option to configure. Valid values:
-        - "pause_baking": Pause the automatic baking/execution of the recipe (useful for performance).
-        - "readonly_ingredients": Lock ingredients from being edited.
-        - "show_ingredient_headers": Show/hide ingredient header bars (disables dragging when hidden).
-        - "show_ingredient_details": Show/hide the details inside ingredients.
-        - "show_help": Enable/disable inline help popups.
-    value : bool
-        True to enable/set the option, False to disable/unset.
-    """
-    _send_command({"action": "set_global_option", "option": option, "value": value})
-    return f"✓ Queued global option '{option}' = {value}."
+    err = _send_command(
+        {"action": "set_global_option", "option": option, "value": value}
+    )
+    if err:
+        return f"❌ {err}"
+    return f"✓ Global option '{option}' = {value}."
 
 
 @mcp.tool()
 def add_operation(
-    operation: str,
-    options: Optional[dict] = None,
-    at_index: Optional[int] = None,
+    operation: str, options: Optional[dict] = None, at_index: Optional[int] = None
 ) -> str:
-    """
-    Add a new operation to the ASP Chef recipe pipeline.
-
-    Parameters
-    ----------
-    operation : str
-        The exact operation name (e.g. "Search Models", "Filter", "Map").
-        Use get_operation_catalogue() to find valid names.
-    options : dict, optional
-        Operation-specific configuration. Common fields shared by all operations:
-          - apply  (bool, default True)  - whether the operation is active
-          - stop   (bool, default False) - pause the pipeline after this step
-          - show   (bool, default True)  - show the output panel
-        Check get_operation_catalogue() for operation-specific options.
-    at_index : int, optional
-        Insert the operation before this index (0-based).
-        Omit to append before the MCP Server connector.
-
-    Returns
-    -------
-    str
-        Confirmation with the operation name and insertion position.
-    """
     opts = options or {}
-    
-    # Enforce standard defaults natively in python 
     opts.setdefault("apply", True)
     opts.setdefault("show", True)
     opts.setdefault("stop", False)
@@ -259,51 +231,32 @@ def add_operation(
     if at_index is not None:
         cmd["at_index"] = at_index
 
-    _send_command(cmd)
+    err = _send_command(cmd)
+    if err:
+        return f"❌ Action executed, but {err}"
     pos = at_index if at_index is not None else "before MCP connector"
-    return f"✓ Queued add_operation '{operation}' at position {pos}."
+    return f"✓ added operation '{operation}' at position {pos}."
 
 
 @mcp.tool()
 def remove_operation(at_index: int) -> str:
-    """
-    Remove the operation at the given index from the recipe.
-
-    Parameters
-    ----------
-    at_index : int
-        0-based index of the operation to remove.
-        Use get_recipe() to see current indices.
-    """
-    _send_command({"action": "remove_operation", "at_index": at_index})
-    return f"✓ Queued remove_operation at index {at_index}."
+    err = _send_command({"action": "remove_operation", "at_index": at_index})
+    if err:
+        return f"❌ {err}"
+    return f"✓ remove_operation at index {at_index}."
 
 
 @mcp.tool()
 def remove_all_operations() -> str:
-    """
-    Remove ALL operations from the recipe, resetting it to an empty pipeline.
-    Use with caution - this cannot be undone through the MCP server.
-    """
-    _send_command({"action": "remove_all_operations"})
-    return "✓ Queued remove_all_operations."
+    err = _send_command({"action": "remove_all_operations"})
+    if err:
+        return f"❌ {err}"
+    return "✓ remove_all_operations applied."
 
 
 @mcp.tool()
 def edit_operation(op_id: str, at_index: int, options: dict) -> str:
-    """
-    Update the options of an existing operation without changing its type or position.
-
-    Parameters
-    ----------
-    op_id : str
-        The unique UUID of the operation (from get_recipe()).
-    at_index : int
-        The current index of the operation (used as a fast-path hint).
-    options : dict
-        The complete new options object. Include all fields, not just changed ones.
-    """
-    _send_command(
+    err = _send_command(
         {
             "action": "edit_operation",
             "op_id": op_id,
@@ -311,118 +264,66 @@ def edit_operation(op_id: str, at_index: int, options: dict) -> str:
             "options": options,
         }
     )
-    return f"✓ Queued edit_operation for id={op_id}."
+    if err:
+        return f"❌ Action executed, but {err}"
+    return f"✓ edit_operation applied for id={op_id}."
 
 
 @mcp.tool()
 def swap_operations(index_1: int, index_2: int) -> str:
-    """
-    Swap the positions of two operations in the recipe.
-
-    Parameters
-    ----------
-    index_1 : int
-        0-based index of the first operation.
-    index_2 : int
-        0-based index of the second operation.
-    """
-    _send_command({"action": "swap_operations", "index_1": index_1, "index_2": index_2})
-    return f"✓ Queued swap_operations {index_1} ↔ {index_2}."
+    err = _send_command(
+        {"action": "swap_operations", "index_1": index_1, "index_2": index_2}
+    )
+    if err:
+        return f"❌ Action executed, but {err}"
+    return f"✓ swap_operations {index_1} ↔ {index_2}."
 
 
 @mcp.tool()
 def duplicate_operation(at_index: int) -> str:
-    """
-    Duplicate the operation at the given index and insert the copy immediately after it.
-
-    Parameters
-    ----------
-    at_index : int
-        0-based index of the operation to duplicate.
-    """
-    _send_command({"action": "duplicate_operation", "at_index": at_index})
-    return f"✓ Queued duplicate_operation at index {at_index}."
+    err = _send_command({"action": "duplicate_operation", "at_index": at_index})
+    if err:
+        return f"❌ Action executed, but {err}"
+    return f"✓ duplicate_operation at index {at_index}."
 
 
 @mcp.tool()
 def remove_operations(at_index: int, how_many: int = 0) -> str:
-    """
-    Remove a contiguous slice of operations from the recipe.
-
-    Parameters
-    ----------
-    at_index : int
-        Start index of the slice (inclusive).
-    how_many : int
-        Number of operations to remove. 0 means remove everything from at_index onward.
-    """
-    _send_command(
+    err = _send_command(
         {"action": "remove_operations", "at_index": at_index, "how_many": how_many}
     )
-    return f"✓ Queued remove_operations from index {at_index} (×{how_many or 'all'})."
+    if err:
+        return f"❌ {err}"
+    return f"✓ remove_operations from index {at_index} (×{how_many or 'all'})."
 
 
 @mcp.tool()
 def toggle_apply(at_index: int) -> str:
-    """
-    Toggle whether the operation at the given index is active (applied) in the pipeline.
-    Inactive operations are skipped during execution.
-
-    Parameters
-    ----------
-    at_index : int
-        0-based index of the operation.
-    """
-    _send_command({"action": "toggle_apply_operation", "at_index": at_index})
-    return f"✓ Queued toggle_apply at index {at_index}."
+    err = _send_command({"action": "toggle_apply_operation", "at_index": at_index})
+    if err:
+        return f"❌ Action executed, but {err}"
+    return f"✓ toggle_apply at index {at_index}."
 
 
 @mcp.tool()
 def toggle_stop(at_index: int) -> str:
-    """
-    Toggle the 'stop' flag on the operation at the given index.
-    When enabled, the pipeline pauses after executing this operation
-    (useful for debugging intermediate results).
-
-    Parameters
-    ----------
-    at_index : int
-        0-based index of the operation.
-    """
-    _send_command({"action": "toggle_stop_at_operation", "at_index": at_index})
-    return f"✓ Queued toggle_stop at index {at_index}."
+    err = _send_command({"action": "toggle_stop_at_operation", "at_index": at_index})
+    if err:
+        return f"❌ {err}"
+    return f"✓ toggle_stop at index {at_index}."
 
 
 @mcp.tool()
 def toggle_show(at_index: int) -> str:
-    """
-    Toggle whether the output of the operation at the given index is shown in the UI.
-
-    Parameters
-    ----------
-    at_index : int
-        0-based index of the operation.
-    """
-    _send_command({"action": "toggle_show_operation", "at_index": at_index})
-    return f"✓ Queued toggle_show at index {at_index}."
+    err = _send_command({"action": "toggle_show_operation", "at_index": at_index})
+    if err:
+        return f"❌ {err}"
+    return f"✓ toggle_show at index {at_index}."
 
 
 @mcp.tool()
 def fix_operation(op_id: str, at_index: int, operation: str) -> str:
-    """
-    Change the type of an existing operation without touching its options or position.
-    Useful for replacing a placeholder with the correct operation name.
-
-    Parameters
-    ----------
-    op_id : str
-        UUID of the operation to change (from get_recipe()).
-    at_index : int
-        Current 0-based index (fast-path hint).
-    operation : str
-        The new operation name.
-    """
-    _send_command(
+    err = _send_command(
         {
             "action": "fix_operation",
             "op_id": op_id,
@@ -430,82 +331,24 @@ def fix_operation(op_id: str, at_index: int, operation: str) -> str:
             "operation": operation,
         }
     )
-    return f"✓ Queued fix_operation id={op_id} → '{operation}'."
-
-
-@mcp.tool()
-def process_recipe(input_text: str, encode: bool = False) -> str:
-    """
-    Process the recipe with the given input. This executes the entire pipeline
-    on the client side using the provided input string.
-
-    Parameters
-    ----------
-    input_text : str
-        The raw string input to feed into the recipe pipeline.
-    encode : bool, optional
-        If True, the input is Base64 encoded and wrapped in an ASP fact.
-        If False (default), it is treated as one or more ASP models separated by '§'.
-    """
-    _send_command({
-        "action": "process_recipe",
-        "input": input_text,
-        "encode": encode
-    })
-    return f"✓ Queued process_recipe with input length {len(input_text)} (encoded: {encode})."
-
-
-@mcp.tool()
-def build_asp_pipeline(description: str) -> str:
-    """
-    High-level tool: given a plain-language description of what the ASP pipeline
-    should do, suggest a sequence of add_operation calls to build it.
-
-    This tool does NOT modify the recipe - it returns a plan as text so you can
-    review it before calling add_operation for each step.
-
-    Parameters
-    ----------
-    description : str
-        Natural-language description of the desired pipeline behaviour.
-        Example: "Parse a graph from input, find all 3-colorings, and display them."
-
-    Returns
-    -------
-    str
-        A step-by-step plan with recommended operations and options.
-    """
-    return (
-        f"Pipeline planning request: '{description}'\n\n"
-        "To build this pipeline, consider the following steps:\n"
-        "1. Call get_operation_catalogue() to browse available operations.\n"
-        "2. Call get_operation_docs(operation) to understand specific operations.\n"
-        "3. Call get_recipe() to see the current state.\n"
-        "4. Use add_operation() for each step in the desired order.\n\n"
-        "Refer to the ASP Chef documentation in the system prompt for operation "
-        "semantics and option schemas."
-    )
+    if err:
+        return f"❌ Action executed, but {err}"
+    return f"✓ fix_operation id={op_id} → '{operation}'."
 
 
 def _run_http_server():
-    """Runs the FastAPI/uvicorn server on port 8000 in a daemon thread."""
+
     config = uvicorn.Config(
-        http_app,
-        host="127.0.0.1",
-        port=8000,
-        log_level="warning",
-        loop="asyncio",
+        http_app, host="127.0.0.1", port=8000, log_level="warning", loop="asyncio"
     )
     server = uvicorn.Server(config)
     server.run()
 
 
 def main():
-    """Entry point for Claude Desktop (STDIO transport)."""
     t = threading.Thread(target=_run_http_server, daemon=True, name="http-bridge")
     t.start()
     log.info("HTTP/SSE bridge starting on http://127.0.0.1:8000 …")
-
     mcp.run(transport="stdio")
 
 
