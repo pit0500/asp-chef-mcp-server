@@ -86,14 +86,13 @@ async def sse_events(request: Request):
 async def sync_recipe(request: Request):
     body = await request.json()
     errors = body.get("errors", [])
-    
-    recipe_state.update(body) 
-    
-    req_id = body.get("request_id")
-    if req_id and req_id in _pending_requests:
-        evt, result_box = _pending_requests[req_id]
+
+    recipe_state.update(body)
+
+    for evt, result_box in list(_pending_requests.values()):
         result_box["errors"] = errors
         evt.set()
+    _pending_requests.clear()
 
     return {"ok": True}
 
@@ -137,7 +136,6 @@ def _send_command(cmd: dict) -> str | None:
     if not success:
         return "Timeout: Action sent, but did not receive confirmation from browser. Recipe might still be processing."
 
-    # Controlla se la pipeline ha generato errori dopo il comando
     errors = result_box.get("errors", [])
     if errors:
         err_msg = next((e for e in errors if e), None)
@@ -145,6 +143,7 @@ def _send_command(cmd: dict) -> str | None:
             return f"Pipeline compilation failed with error: {err_msg}"
 
     return None
+
 
 mcp = FastMCP("ASP Chef", instructions=ASP_CHEF_DOCS)
 
@@ -196,12 +195,15 @@ def get_operation_categories() -> str:
 
 
 @mcp.tool()
-def set_input(input_text: str, encode: bool = False) -> str:
-    """Sets the input text for the pipeline, optionally encoding it first."""
+def set_input(input_text: str, encode: bool = True) -> str:
+    """Sets the input text for the pipeline.
+    Use encode=True for plain text, JSON, CSV, or any non-ASP format.
+    Use encode=False ONLY if the input is already valid Answer Set Programming syntax.
+    """
     err = _send_command({"action": "set_input", "input": input_text, "encode": encode})
     if err:
-        return f"❌ {err}"
-    return f"✓ set_input applied with length {len(input_text)} (encoded: {encode})."
+        return f"{err}"
+    return f"set_input applied with length {len(input_text)} (encoded: {encode})."
 
 
 @mcp.tool()
@@ -210,8 +212,8 @@ def set_global_option(option: str, value: bool) -> str:
         {"action": "set_global_option", "option": option, "value": value}
     )
     if err:
-        return f"❌ {err}"
-    return f"✓ Global option '{option}' = {value}."
+        return f"{err}"
+    return f"Global option '{option}' = {value}."
 
 
 @mcp.tool()
@@ -233,29 +235,34 @@ def add_operation(
 
     err = _send_command(cmd)
     if err:
-        return f"❌ Action executed, but {err}"
+        return f"Action executed, but {err}"
     pos = at_index if at_index is not None else "before MCP connector"
-    return f"✓ added operation '{operation}' at position {pos}."
+    return f"added operation '{operation}' at position {pos}."
 
 
 @mcp.tool()
 def remove_operation(at_index: int) -> str:
-    err = _send_command({"action": "remove_operation", "at_index": at_index})
+    err = _send_command({"action": "remove_operations", "at_index": at_index, "how_many": 1})
     if err:
-        return f"❌ {err}"
-    return f"✓ remove_operation at index {at_index}."
+        return f"{err}"
+    return f"remove_operation at index {at_index}."
 
 
 @mcp.tool()
 def remove_all_operations() -> str:
     err = _send_command({"action": "remove_all_operations"})
     if err:
-        return f"❌ {err}"
-    return "✓ remove_all_operations applied."
+        return f"{err}"
+    return "remove_all_operations applied."
 
 
 @mcp.tool()
 def edit_operation(op_id: str, at_index: int, options: dict) -> str:
+    """Update an operation's options.
+    CRITICAL: This performs a FULL REPLACEMENT of the options object.
+    You MUST call get_recipe() first and include ALL existing keys (like 'rules', 'height', etc.)
+    in the 'options' argument, or they will be wiped out.
+    """
     err = _send_command(
         {
             "action": "edit_operation",
@@ -265,8 +272,8 @@ def edit_operation(op_id: str, at_index: int, options: dict) -> str:
         }
     )
     if err:
-        return f"❌ Action executed, but {err}"
-    return f"✓ edit_operation applied for id={op_id}."
+        return f"Action executed, but {err}"
+    return f"edit_operation applied for id={op_id}."
 
 
 @mcp.tool()
@@ -275,16 +282,16 @@ def swap_operations(index_1: int, index_2: int) -> str:
         {"action": "swap_operations", "index_1": index_1, "index_2": index_2}
     )
     if err:
-        return f"❌ Action executed, but {err}"
-    return f"✓ swap_operations {index_1} ↔ {index_2}."
+        return f"Action executed, but {err}"
+    return f"swap_operations {index_1} ↔ {index_2}."
 
 
 @mcp.tool()
 def duplicate_operation(at_index: int) -> str:
     err = _send_command({"action": "duplicate_operation", "at_index": at_index})
     if err:
-        return f"❌ Action executed, but {err}"
-    return f"✓ duplicate_operation at index {at_index}."
+        return f"Action executed, but {err}"
+    return f"duplicate_operation at index {at_index}."
 
 
 @mcp.tool()
@@ -293,32 +300,32 @@ def remove_operations(at_index: int, how_many: int = 0) -> str:
         {"action": "remove_operations", "at_index": at_index, "how_many": how_many}
     )
     if err:
-        return f"❌ {err}"
-    return f"✓ remove_operations from index {at_index} (×{how_many or 'all'})."
+        return f"{err}"
+    return f"remove_operations from index {at_index} (×{how_many or 'all'})."
 
 
 @mcp.tool()
 def toggle_apply(at_index: int) -> str:
     err = _send_command({"action": "toggle_apply_operation", "at_index": at_index})
     if err:
-        return f"❌ Action executed, but {err}"
-    return f"✓ toggle_apply at index {at_index}."
+        return f"Action executed, but {err}"
+    return f"toggle_apply at index {at_index}."
 
 
 @mcp.tool()
 def toggle_stop(at_index: int) -> str:
     err = _send_command({"action": "toggle_stop_at_operation", "at_index": at_index})
     if err:
-        return f"❌ {err}"
-    return f"✓ toggle_stop at index {at_index}."
+        return f"{err}"
+    return f"toggle_stop at index {at_index}."
 
 
 @mcp.tool()
 def toggle_show(at_index: int) -> str:
     err = _send_command({"action": "toggle_show_operation", "at_index": at_index})
     if err:
-        return f"❌ {err}"
-    return f"✓ toggle_show at index {at_index}."
+        return f"{err}"
+    return f"toggle_show at index {at_index}."
 
 
 @mcp.tool()
@@ -332,8 +339,30 @@ def fix_operation(op_id: str, at_index: int, operation: str) -> str:
         }
     )
     if err:
-        return f"❌ Action executed, but {err}"
-    return f"✓ fix_operation id={op_id} → '{operation}'."
+        return f"Action executed, but {err}"
+    return f"fix_operation id={op_id} → '{operation}'."
+
+
+@mcp.tool()
+def toggle_readonly_operation(at_index: int) -> str:
+    err = _send_command({"action": "toggle_readonly_operation", "at_index": at_index})
+    if err:
+        return f"{err}"
+    return f"toggle_readonly_operation at index {at_index}."
+
+
+@mcp.tool()
+def toggle_hide_header_operation(at_index: int) -> str:
+    err = _send_command({"action": "toggle_hide_header_operation", "at_index": at_index})
+    if err:
+        return f"{err}"
+    return f"toggle_hide_header_operation at index {at_index}."
+
+
+@mcp.tool()
+def build_asp_pipeline(description: str) -> str:
+    """Map out complex user requests before acting to plan the pipeline."""
+    return f"Plan noted for description: {description}. Proceed with applying tools to edit the pipeline."
 
 
 def _run_http_server():
@@ -354,3 +383,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    mcp.run(transport="stdio")
+
