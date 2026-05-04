@@ -145,6 +145,7 @@ Si aprirà una UI web su http://localhost:5173 dove puoi chiamare i tool manualm
 |-------------------------|-----------------------------------------------------------|
 | `get_recipe`            | Legge lo stato attuale della ricetta                      |
 | `get_operation_catalogue` | Catalogo di tutte le operazioni disponibili             |
+| `search_operations`     | Cerca operazioni per nome o documentazione                |
 | `add_operation`         | Aggiunge un'operazione alla pipeline                      |
 | `remove_operation`      | Rimuove un'operazione per indice                          |
 | `remove_all_operations` | Svuota la ricetta                                         |

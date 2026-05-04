@@ -175,7 +175,7 @@ def search_operations(query: str) -> str:
 
 
 @mcp.tool()
-def get_operation_categories() -> str:
+def get_operation_catalogue() -> str:
     """Explore available tools grouped alphabetically to find the right operation."""
     operations = sorted(recipe_state.docs.keys())
     if not operations:
@@ -383,5 +383,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    mcp.run(transport="stdio")
 
