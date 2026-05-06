@@ -71,22 +71,11 @@ Add this section (adjust the paths to your system):
       "command": "uv",
       "args": [
         "run",
-        "--project", "/absolute/path/to/asp-chef-mcp-server",
-        "python", "-m", "asp_chef_mcp_server.server"
+        "--directory",
+        "/absolute/path/to/asp-chef-mcp-server",
+        "run",
+        "server.py"
       ]
-    }
-  }
-}
-```
-
-#### With direct Python:
-
-```json
-{
-  "mcpServers": {
-    "asp-chef": {
-      "command": "/absolute/path/to/asp-chef-mcp-server/.venv/bin/python",
-      "args": ["-m", "asp_chef_mcp_server.server"]
     }
   }
 }
