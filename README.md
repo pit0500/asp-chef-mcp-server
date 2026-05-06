@@ -1,8 +1,8 @@
 # ASP Chef MCP Server
 
-Collega **Claude Desktop** (o qualsiasi client MCP) ad **ASP Chef** (https://asp-chef.alviano.net).
+Connect **Claude Desktop** (or any MCP client) to **ASP Chef** (https://asp-chef.alviano.net).
 
-## Architettura
+## Architecture
 
 ```
 Claude Desktop
@@ -15,55 +15,54 @@ FastAPI HTTP server  ──► GET /events  (SSE stream → browser)
                      ◄── POST /sync   (recipe snapshot ← browser)
 
 Browser (ASP Chef)
-    └─ MCPServer.svelte  ──SSE──► riceve comandi → chiama Recipe.*()
-                         ──POST /sync──► invia stato corrente
+    └─ MCPServer.svelte  ──SSE──► receives commands → calls Recipe.*()
+                         ──POST /sync──► sends current state
 ```
 
-Il processo è **unico**: FastMCP (STDIO) e FastAPI (HTTP:8000) girano
-nello stesso processo Python. FastAPI gira in un thread daemon separato.
+The process is **single**: FastMCP (STDIO) and FastAPI (HTTP:8000) run in the same Python process. FastAPI runs in a separate daemon thread.
 
 ---
 
-## Installazione
+## Installation
 
-### 1. Prerequisiti
+### 1. Prerequisites
 
 - Python ≥ 3.11
-- `uv` (consigliato) oppure `pip`
+- `uv` (recommended) or `pip`
 
-### 2. Clona / scarica questo progetto
+### 2. Clone / download this project
 
 ```bash
-git clone <questo-repo>   # oppure estrai lo zip
+git clone <this-repo>   # or extract the zip
 cd asp-chef-mcp
 ```
 
-### 3. Crea il virtualenv e installa
+### 3. Create virtualenv and install
 
 ```bash
-# Con uv (consigliato):
+# With uv (recommended):
 uv venv
 uv pip install -e .
 
-# Con pip:
+# With pip:
 python -m venv .venv
 source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-### 4. Configura Claude Desktop
+### 4. Configure Claude Desktop
 
-Apri (o crea) il file di configurazione di Claude Desktop:
+Open (or create) the Claude Desktop configuration file:
 
-| OS      | Percorso                                                                 |
+| OS      | Path                                                                     |
 |---------|--------------------------------------------------------------------------|
 | macOS   | `~/Library/Application Support/Claude/claude_desktop_config.json`        |
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json`                            |
 | Linux   | `~/.config/Claude/claude_desktop_config.json`                            |
 
-Aggiungi questa sezione (adatta i percorsi al tuo sistema):
+Add this section (adjust the paths to your system):
 
-#### Con `uv` (consigliato):
+#### With `uv` (recommended):
 
 ```json
 {
@@ -72,89 +71,81 @@ Aggiungi questa sezione (adatta i percorsi al tuo sistema):
       "command": "uv",
       "args": [
         "run",
-        "--project", "/percorso/assoluto/asp-chef-mcp",
-        "asp-chef-mcp"
+        "--project", "/absolute/path/to/asp-chef-mcp-server",
+        "python", "-m", "asp_chef_mcp_server.server"
       ]
     }
   }
 }
 ```
 
-#### Con Python diretto:
+#### With direct Python:
 
 ```json
 {
   "mcpServers": {
     "asp-chef": {
-      "command": "/percorso/assoluto/asp-chef-mcp/.venv/bin/python",
-      "args": ["-m", "asp_chef_mcp.server"]
+      "command": "/absolute/path/to/asp-chef-mcp-server/.venv/bin/python",
+      "args": ["-m", "asp_chef_mcp_server.server"]
     }
   }
 }
 ```
 
-> **Windows**: usa backslash e `.venv\Scripts\python.exe`.
+> **Windows**: use backslashes and `.venv\Scripts\python.exe`.
 
-### 5. Riavvia Claude Desktop
+### 5. Restart Claude Desktop
 
-Dopo aver salvato il file di configurazione, riavvia completamente Claude Desktop.
-Dovresti vedere il tool 🔨 nella barra degli strumenti con "asp-chef" disponibile.
-
----
-
-## Uso con ASP Chef
-
-1. Apri https://asp-chef.alviano.net nel browser.
-2. Aggiungi l'operazione **MCP Server** alla ricetta (appare nella lista delle operazioni).
-3. Assicurati che l'URL sia `http://localhost:8000` e premi **Connect**.
-4. In Claude Desktop scrivi ad esempio:
-
-   > "Aggiungi un'operazione Search Models che cerca tutti i modelli di un programma
-   >  con i fatti `a. b. c.` e stampa i risultati."
-
-Claude chiamerà automaticamente i tool MCP e il browser aggiornerà la ricetta in tempo reale.
+After saving the configuration file, completely restart Claude Desktop.
+You should see the tool 🔨 icon in the toolbar with "asp-chef" available.
 
 ---
 
-## Endpoint HTTP
+## Usage with ASP Chef
 
-| Metodo | Path       | Descrizione                                        |
+1. Open https://asp-chef.alviano.net in your browser.
+2. Add the **MCP Server** operation to the recipe (it appears in the operations list).
+3. Ensure the URL is `http://localhost:8000` and press **Connect**.
+4. In Claude Desktop, you can write for example:
+
+   > "Add a Search Models operation that finds all models of a program with facts `a. b. c.` and prints the results."
+
+Claude will automatically call the MCP tools, and the browser will update the recipe in real-time.
+
+---
+
+## HTTP Endpoints
+
+| Method | Path       | Description                                        |
 |--------|------------|----------------------------------------------------|
-| GET    | `/events`  | SSE stream – il browser si connette qui            |
-| POST   | `/sync`    | Il browser invia lo stato corrente della ricetta   |
-| GET    | `/health`  | Healthcheck JSON                                   |
+| GET    | `/events`  | SSE stream – the browser connects here            |
+| POST   | `/sync`    | The browser sends the current recipe state         |
+| POST   | `/docs`    | The browser sends the documentation for operations |
+| GET    | `/health`  | JSON healthcheck                                   |
 
 ---
 
-## Sviluppo
+## Available MCP Tools
 
-Per testare il server senza Claude Desktop, usa l'**MCP Inspector**:
-
-```bash
-# Installa l'inspector (richiede Node.js)
-npx @modelcontextprotocol/inspector uv run --project . asp-chef-mcp
-```
-
-Si aprirà una UI web su http://localhost:5173 dove puoi chiamare i tool manualmente.
-
----
-
-## Tool MCP disponibili
-
-| Tool                    | Descrizione                                               |
-|-------------------------|-----------------------------------------------------------|
-| `get_recipe`            | Legge lo stato attuale della ricetta                      |
-| `get_operation_catalogue` | Catalogo di tutte le operazioni disponibili             |
-| `search_operations`     | Cerca operazioni per nome o documentazione                |
-| `add_operation`         | Aggiunge un'operazione alla pipeline                      |
-| `remove_operation`      | Rimuove un'operazione per indice                          |
-| `remove_all_operations` | Svuota la ricetta                                         |
-| `edit_operation`        | Modifica le opzioni di un'operazione esistente            |
-| `swap_operations`       | Scambia due operazioni di posizione                       |
-| `duplicate_operation`   | Duplica un'operazione                                     |
-| `remove_operations`     | Rimuove una sequenza di operazioni                        |
-| `toggle_apply`          | Attiva/disattiva un'operazione                            |
-| `toggle_stop`           | Attiva/disattiva il breakpoint dopo un'operazione         |
-| `toggle_show`           | Mostra/nasconde l'output di un'operazione                 |
-| `fix_operation`         | Cambia il tipo di un'operazione esistente                 |
-| `build_asp_pipeline`    | Suggerisce un piano di operazioni da una descrizione      |
+| Tool                          | Description                                                                 |
+|-------------------------------|-----------------------------------------------------------------------------|
+| `get_recipe`                  | Get the current state of the ASP Chef recipe pipeline.                      |
+| `get_operation_docs`          | Get detailed documentation and options schema for a specific operation.     |
+| `search_operations`           | Search for operations matching a keyword in name or documentation.          |
+| `get_operation_catalogue`     | Explore available tools grouped alphabetically.                             |
+| `set_input`                   | Set the input text for the pipeline (with optional encoding).               |
+| `set_global_option`           | Set a global option (e.g., auto-run).                                       |
+| `add_operation`               | Add an operation to the pipeline at a specific index.                       |
+| `remove_operation`            | Remove an operation at a specific index.                                    |
+| `remove_all_operations`       | Clear the entire recipe.                                                    |
+| `edit_operation`              | Update an operation's options (requires full replacement).                  |
+| `swap_operations`             | Swap the positions of two operations.                                       |
+| `duplicate_operation`         | Duplicate an operation at a specific index.                                 |
+| `remove_operations`           | Remove a range or all operations starting from an index.                    |
+| `toggle_apply`                | Enable or disable an operation.                                             |
+| `toggle_stop`                 | Enable or disable a breakpoint after an operation.                          |
+| `toggle_show`                 | Show or hide the output of an operation.                                    |
+| `fix_operation`               | Change the type of an existing operation.                                   |
+| `toggle_readonly_operation`   | Toggle the read-only state of an operation.                                 |
+| `toggle_hide_header_operation`| Toggle the visibility of an operation's header.                             |
+| `build_asp_pipeline`          | Suggest a pipeline plan based on a description.                             |
