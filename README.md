@@ -70,23 +70,36 @@ Add this section (adjust the paths to your system):
     "asp-chef": {
       "command": "uv",
       "args": [
-        "run",
         "--directory",
-        "/absolute/path/to/asp-chef-mcp-server",
+        "/absolute/path/to/asp-chef-mcp-server/src/asp_chef_mcp_server",
         "run",
-        "server.py"
+        "server.py",
+        "--port",
+        "8000"
       ]
     }
   }
 }
 ```
 
-> **Windows**: use backslashes and `.venv\Scripts\python.exe`.
+> **Note**: The `--port` argument is optional (defaults to 8000). You only need it if you want to run on a different port.
 
-### 5. Restart Claude Desktop
+---
 
-After saving the configuration file, completely restart Claude Desktop.
-You should see the tool 🔨 icon in the toolbar with "asp-chef" available.
+## Other MCP Clients
+
+This server is compatible with any client supporting the Model Context Protocol. Check the official documentation for setup instructions:
+
+- [**Gemini CLI**](https://geminicli.com/docs/mcp)
+- [**OpenAI Codex**](https://developers.openai.com/codex/mcp)
+- [**Goose**](https://goose-docs.ai/docs/tutorials/custom-extensions/)
+
+---
+
+### 5. Restart your client
+
+After saving the configuration file, completely restart your MCP client (e.g. Claude Desktop).
+You should see the tool available.
 
 ---
 
@@ -94,7 +107,7 @@ You should see the tool 🔨 icon in the toolbar with "asp-chef" available.
 
 1. Open https://asp-chef.alviano.net in your browser.
 2. Add the **MCP Server** operation to the recipe (it appears in the operations list).
-3. Ensure the URL is `http://localhost:8000` and press **Connect**.
+3. Ensure the URL is `http://localhost:{PORT}` and press **Connect**.
 4. In Claude Desktop, you can write for example:
 
    > "Add a Search Models operation that finds all models of a program with facts `a. b. c.` and prints the results."

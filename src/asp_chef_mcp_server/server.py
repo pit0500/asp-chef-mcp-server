@@ -8,6 +8,7 @@ Dual-transport server:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import logging
@@ -35,12 +36,14 @@ _event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 _pending_requests: dict[str, tuple[threading.Event, dict]] = {}
 
+HTTP_PORT = 8000
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _event_loop
     _event_loop = asyncio.get_running_loop()
-    log.info("FastAPI ready - SSE bridge is live on http://127.0.0.1:8000")
+    log.info(f"FastAPI ready - SSE bridge is live on http://127.0.0.1:{HTTP_PORT}")
     yield
 
 
@@ -365,19 +368,32 @@ def build_asp_pipeline(description: str) -> str:
     return f"Plan noted for description: {description}. Proceed with applying tools to edit the pipeline."
 
 
-def _run_http_server():
+def _run_http_server(port: int):
 
     config = uvicorn.Config(
-        http_app, host="127.0.0.1", port=8000, log_level="warning", loop="asyncio"
+        http_app, host="127.0.0.1", port=port, log_level="warning", loop="asyncio"
     )
     server = uvicorn.Server(config)
     server.run()
 
 
 def main():
-    t = threading.Thread(target=_run_http_server, daemon=True, name="http-bridge")
+    global HTTP_PORT
+    parser = argparse.ArgumentParser(description="ASP Chef MCP Server")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for the HTTP/SSE bridge (default: 8000)",
+    )
+    args, _ = parser.parse_known_args()
+    HTTP_PORT = args.port
+
+    t = threading.Thread(
+        target=_run_http_server, args=(HTTP_PORT,), daemon=True, name="http-bridge"
+    )
     t.start()
-    log.info("HTTP/SSE bridge starting on http://127.0.0.1:8000 …")
+    log.info(f"HTTP/SSE bridge starting on http://127.0.0.1:{HTTP_PORT} …")
     mcp.run(transport="stdio")
 
 
