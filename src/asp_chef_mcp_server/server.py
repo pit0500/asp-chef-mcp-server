@@ -379,6 +379,7 @@ def _run_http_server(port: int):
 
 def main():
     global HTTP_PORT
+    global HOST
     parser = argparse.ArgumentParser(description="ASP Chef MCP Server")
     parser.add_argument(
         "--port",
@@ -386,14 +387,21 @@ def main():
         default=8000,
         help="Port for the HTTP/SSE bridge (default: 8000)",
     )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host for the HTTP/SSE bridge"
+    )
     args, _ = parser.parse_known_args()
     HTTP_PORT = args.port
+    HOST = args.host
 
     t = threading.Thread(
         target=_run_http_server, args=(HTTP_PORT,), daemon=True, name="http-bridge"
     )
     t.start()
-    log.info(f"HTTP/SSE bridge starting on http://127.0.0.1:{HTTP_PORT} …")
+    log.info(f"HTTP/SSE bridge starting on http://{HOST}:{HTTP_PORT} …")
     mcp.run(transport="stdio")
 
 

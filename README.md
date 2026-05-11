@@ -74,6 +74,8 @@ Add this section (adjust the paths to your system):
         "/absolute/path/to/asp-chef-mcp-server/src/asp_chef_mcp_server",
         "run",
         "server.py",
+        "--host",
+        "localhost",
         "--port",
         "8000"
       ]
@@ -82,7 +84,7 @@ Add this section (adjust the paths to your system):
 }
 ```
 
-> **Note**: The `--port` argument is optional (defaults to 8000). You only need it if you want to run on a different port.
+> **Note**: The `--port` and `--host` arguments are optional (defaults to localhost:8000). You only need them if you want to run on a different port or host.
 
 ---
 
