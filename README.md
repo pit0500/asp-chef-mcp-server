@@ -34,7 +34,7 @@ The process is **single**: FastMCP (STDIO) and FastAPI (HTTP:8000) run in the sa
 
 ```bash
 git clone <this-repo>   # or extract the zip
-cd asp-chef-mcp
+cd asp-chef-mcp-server
 ```
 
 ### 3. Create virtualenv and install
@@ -96,6 +96,7 @@ This server is compatible with any client supporting the Model Context Protocol.
 - [**OpenAI Codex**](https://developers.openai.com/codex/mcp)
 - [**Goose**](https://goose-docs.ai/docs/tutorials/custom-extensions/)
 
+
 ---
 
 ### 5. Restart your client
@@ -109,7 +110,7 @@ You should see the tool available.
 
 1. Open https://asp-chef.alviano.net in your browser.
 2. Add the **MCP Server** operation to the recipe (it appears in the operations list).
-3. Ensure the URL is `http://localhost:{PORT}` and press **Connect**.
+3. Ensure the URL is `http://{HOST}:{PORT}` and press **Connect**.
 4. In Claude Desktop, you can write for example:
 
    > "Add a Search Models operation that finds all models of a program with facts `a. b. c.` and prints the results."
