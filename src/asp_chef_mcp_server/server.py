@@ -384,7 +384,7 @@ def main():
     parser.add_argument(
         "--port",
         type=int,
-        default=8000,
+        default=8100,
         help="Port for the HTTP/SSE bridge (default: 8000)",
     )
     parser.add_argument(

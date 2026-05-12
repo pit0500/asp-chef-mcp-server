@@ -1,6 +1,6 @@
 # ASP Chef MCP Server
 
-Connect **Claude Desktop** (or any MCP client) to **ASP Chef** (https://asp-chef.alviano.net).
+Connect **any MCP client** to **ASP Chef** (https://asp-chef.alviano.net).
 
 ## Architecture
 
@@ -19,7 +19,7 @@ Browser (ASP Chef)
                          ──POST /sync──► sends current state
 ```
 
-The process is **single**: FastMCP (STDIO) and FastAPI (HTTP:8000) run in the same Python process. FastAPI runs in a separate daemon thread.
+The process is **single**: FastMCP (STDIO) and FastAPI (HTTP:8100) run in the same Python process. FastAPI runs in a separate daemon thread.
 
 ---
 
@@ -77,7 +77,7 @@ Add this section (adjust the paths to your system):
         "--host",
         "localhost",
         "--port",
-        "8000"
+        "8100"
       ]
     }
   }
@@ -109,7 +109,7 @@ You should see the tool available.
 ## Usage with ASP Chef
 
 1. Open https://asp-chef.alviano.net in your browser.
-2. Add the **MCP Server** operation to the recipe (it appears in the operations list).
+2. Add the **MCP AI Assistant** operation to the recipe (it appears in the operations list).
 3. Ensure the URL is `http://{HOST}:{PORT}` and press **Connect**.
 4. In Claude Desktop, you can write for example:
 
