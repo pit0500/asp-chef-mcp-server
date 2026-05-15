@@ -82,9 +82,9 @@ Add this section (adjust the paths to your system):
       "command": "uv",
       "args": [
         "--directory",
-        "/absolute/path/to/asp-chef-mcp-server/src/asp_chef_mcp_server",
+        "/absolute/path/to/asp-chef-mcp-server",
         "run",
-        "server.py",
+        "asp-chef-mcp",
         "--host",
         "localhost",
         "--port",
@@ -95,7 +95,42 @@ Add this section (adjust the paths to your system):
 }
 ```
 
-> **Note**: The `--port` and `--host` arguments are optional (defaults to localhost:8000). You only need them if you want to run on a different port or host.
+> **Note**: The `--port` and `--host` arguments are optional (defaults to `127.0.0.1:8100`). You only need them if you want to run on a different port or host.
+
+#### With an installed console script
+
+After `uv pip install -e .` or `pip install -e .`, the package exposes an `asp-chef-mcp`
+entrypoint. If your client can use binaries from the virtualenv directly, you can configure:
+
+```json
+{
+  "mcpServers": {
+    "asp-chef": {
+      "command": "/absolute/path/to/asp-chef-mcp-server/.venv/bin/asp-chef-mcp",
+      "args": [
+        "--host",
+        "localhost",
+        "--port",
+        "8100"
+      ]
+    }
+  }
+}
+```
+
+You can also run it manually:
+
+```bash
+uv run asp-chef-mcp --host localhost --port 8100
+```
+
+or:
+
+```bash
+python -m asp_chef_mcp_server --host localhost --port 8100
+```
+
+> **Note**: The `--port` and `--host` arguments are optional (defaults to `127.0.0.1:8100`).
 
 ---
 

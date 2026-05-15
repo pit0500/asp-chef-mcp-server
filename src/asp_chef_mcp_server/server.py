@@ -23,9 +23,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastmcp import FastMCP
 
-from asp_chef_docs import ASP_CHEF_DOCS
-from asp_skill_library import ASP_SKILL_LIBRARY
-from recipe_state import RecipeState
+from .asp_chef_docs import ASP_CHEF_DOCS
+from .asp_skill_library import ASP_SKILL_LIBRARY
+from .recipe_state import RecipeState
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger("asp-chef-mcp")
@@ -37,14 +37,15 @@ _event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 _pending_requests: dict[str, tuple[threading.Event, dict]] = {}
 
-HTTP_PORT = 8000
+HTTP_PORT = 8100
+HTTP_HOST = "127.0.0.1"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _event_loop
     _event_loop = asyncio.get_running_loop()
-    log.info(f"FastAPI ready - SSE bridge is live on http://127.0.0.1:{HTTP_PORT}")
+    log.info(f"FastAPI ready - SSE bridge is live on http://{HTTP_HOST}:{HTTP_PORT}")
     yield
 
 
@@ -381,10 +382,9 @@ def build_asp_pipeline(description: str) -> str:
     return f"Plan noted for description: {description}. Proceed with applying tools to edit the pipeline."
 
 
-def _run_http_server(port: int):
-
+def _run_http_server(host: str, port: int):
     config = uvicorn.Config(
-        http_app, host="127.0.0.1", port=port, log_level="warning", loop="asyncio"
+        http_app, host=host, port=port, log_level="warning", loop="asyncio"
     )
     server = uvicorn.Server(config)
     server.run()
@@ -392,13 +392,13 @@ def _run_http_server(port: int):
 
 def main():
     global HTTP_PORT
-    global HOST
+    global HTTP_HOST
     parser = argparse.ArgumentParser(description="ASP Chef MCP Server")
     parser.add_argument(
         "--port",
         type=int,
         default=8100,
-        help="Port for the HTTP/SSE bridge (default: 8000)",
+        help="Port for the HTTP/SSE bridge (default: 8100)",
     )
     parser.add_argument(
         "--host",
@@ -408,13 +408,16 @@ def main():
     )
     args, _ = parser.parse_known_args()
     HTTP_PORT = args.port
-    HOST = args.host
+    HTTP_HOST = args.host
 
     t = threading.Thread(
-        target=_run_http_server, args=(HTTP_PORT,), daemon=True, name="http-bridge"
+        target=_run_http_server,
+        args=(HTTP_HOST, HTTP_PORT),
+        daemon=True,
+        name="http-bridge",
     )
     t.start()
-    log.info(f"HTTP/SSE bridge starting on http://{HOST}:{HTTP_PORT} …")
+    log.info(f"HTTP/SSE bridge starting on http://{HTTP_HOST}:{HTTP_PORT} …")
     mcp.run(transport="stdio")
 
 
