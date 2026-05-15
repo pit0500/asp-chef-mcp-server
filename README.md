@@ -202,30 +202,3 @@ Claude will automatically call the MCP tools, and the browser will update the re
 | `toggle_readonly_operation`   | Toggle the read-only state of an operation.                                 |
 | `toggle_hide_header_operation`| Toggle the visibility of an operation's header.                             |
 | `build_asp_pipeline`          | Suggest a pipeline plan based on a description.                             |
-
-## ASP Manual Layer
-
-The server includes a local ASP syntax layer intended to reduce hallucinations when
-an LLM is asked about clingo or Answer Set Programming syntax.
-
-### How it works
-
-- The system prompt instructs the model to consult the manual before answering syntax-sensitive questions.
-- `search_asp_manual(query)` performs local retrieval over `guide.md`.
-- `get_asp_manual_section(section_name)` returns the full section body for a specific topic.
-- `list_asp_manual_sections()` exposes the available structure so the client can browse it.
-
-### Current source of truth
-
-The markdown companion is intentionally easy to search and maintain. It is not meant
-to replace the full upstream guide:
-
-- prefer `guide.md` for retrieval by the LLM
-- keep `guide.pdf` as the fuller local reference
-- extend `guide.md` over time with additional sections when you observe recurring syntax mistakes
-
-### Recommended usage
-
-For questions involving rules, negation, choices, aggregates, optimization,
-`#show`, `#program`, or variable safety, the MCP client should call the ASP manual
-tools before generating a final answer or writing ASP code.
