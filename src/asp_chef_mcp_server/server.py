@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 from fastmcp import FastMCP
 
 from asp_chef_docs import ASP_CHEF_DOCS
+from asp_skill_library import ASP_SKILL_LIBRARY
 from recipe_state import RecipeState
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -195,6 +196,18 @@ def get_operation_catalogue() -> str:
     for letter, ops in groups.items():
         result += f"[{letter}]\n- " + "\n- ".join(ops) + "\n\n"
     return result.strip()
+
+
+@mcp.tool()
+def list_asp_skills() -> str:
+    """Return compact metadata for the local ASP knowledge modules."""
+    return ASP_SKILL_LIBRARY.list_files()
+
+
+@mcp.tool()
+def load_asp_skill(skill_name: str) -> str:
+    """Load the full text of one local ASP knowledge module by name or filename."""
+    return ASP_SKILL_LIBRARY.get_file(skill_name)
 
 
 @mcp.tool()
@@ -407,4 +420,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -2,6 +2,9 @@
 
 Connect **any MCP client** to **ASP Chef** (https://asp-chef.alviano.net).
 
+The server also exposes a local ASP syntax manual backed by markdown, so an LLM can
+consult structured clingo guidance instead of relying only on its parametric memory.
+
 ## Architecture
 
 ```
@@ -18,6 +21,14 @@ Browser (ASP Chef)
     └─ MCPServer.svelte  ──SSE──► receives commands → calls Recipe.*()
                          ──POST /sync──► sends current state
 ```
+
+The bundled manual assets live in `src/asp_chef_mcp_server/clingo_manual/`:
+
+- `guide.pdf`: original local reference
+- `guide.md`: retrieval-friendly companion used by MCP tools
+- `asp-clingo-syntax.SKILL.md`: flat skill entry point for syntax-safe ASP/clingo code
+- `asp-modeling-patterns.SKILL.md`: flat skill entry point for common ASP modeling families
+- `asp-pattern-*.md`: reusable problem-pattern references for common encodings
 
 The process is **single**: FastMCP (STDIO) and FastAPI (HTTP:8100) run in the same Python process. FastAPI runs in a separate daemon thread.
 
@@ -138,6 +149,9 @@ Claude will automatically call the MCP tools, and the browser will update the re
 | `get_operation_docs`          | Get detailed documentation and options schema for a specific operation.     |
 | `search_operations`           | Search for operations matching a keyword in name or documentation.          |
 | `get_operation_catalogue`     | Explore available tools grouped alphabetically.                             |
+| `list_asp_manual_sections`    | List the sections in the local ASP syntax manual markdown.                  |
+| `get_asp_manual_section`      | Return one named section from the local ASP syntax manual.                  |
+| `search_asp_manual`           | Search the local ASP syntax manual for clingo constructs.                   |
 | `set_input`                   | Set the input text for the pipeline (with optional encoding).               |
 | `set_global_option`           | Set a global option (e.g., auto-run).                                       |
 | `add_operation`               | Add an operation to the pipeline at a specific index.                       |
@@ -154,3 +168,30 @@ Claude will automatically call the MCP tools, and the browser will update the re
 | `toggle_readonly_operation`   | Toggle the read-only state of an operation.                                 |
 | `toggle_hide_header_operation`| Toggle the visibility of an operation's header.                             |
 | `build_asp_pipeline`          | Suggest a pipeline plan based on a description.                             |
+
+## ASP Manual Layer
+
+The server includes a local ASP syntax layer intended to reduce hallucinations when
+an LLM is asked about clingo or Answer Set Programming syntax.
+
+### How it works
+
+- The system prompt instructs the model to consult the manual before answering syntax-sensitive questions.
+- `search_asp_manual(query)` performs local retrieval over `guide.md`.
+- `get_asp_manual_section(section_name)` returns the full section body for a specific topic.
+- `list_asp_manual_sections()` exposes the available structure so the client can browse it.
+
+### Current source of truth
+
+The markdown companion is intentionally easy to search and maintain. It is not meant
+to replace the full upstream guide:
+
+- prefer `guide.md` for retrieval by the LLM
+- keep `guide.pdf` as the fuller local reference
+- extend `guide.md` over time with additional sections when you observe recurring syntax mistakes
+
+### Recommended usage
+
+For questions involving rules, negation, choices, aggregates, optimization,
+`#show`, `#program`, or variable safety, the MCP client should call the ASP manual
+tools before generating a final answer or writing ASP code.
