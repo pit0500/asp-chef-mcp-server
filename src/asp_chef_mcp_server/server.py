@@ -259,7 +259,9 @@ def add_operation(
 
 @mcp.tool()
 def remove_operation(at_index: int) -> str:
-    err = _send_command({"action": "remove_operations", "at_index": at_index, "how_many": 1})
+    err = _send_command(
+        {"action": "remove_operations", "at_index": at_index, "how_many": 1}
+    )
     if err:
         return f"{err}"
     return f"remove_operation at index {at_index}."
@@ -346,21 +348,6 @@ def toggle_show(at_index: int) -> str:
 
 
 @mcp.tool()
-def fix_operation(op_id: str, at_index: int, operation: str) -> str:
-    err = _send_command(
-        {
-            "action": "fix_operation",
-            "op_id": op_id,
-            "at_index": at_index,
-            "operation": operation,
-        }
-    )
-    if err:
-        return f"Action executed, but {err}"
-    return f"fix_operation id={op_id} → '{operation}'."
-
-
-@mcp.tool()
 def toggle_readonly_operation(at_index: int) -> str:
     err = _send_command({"action": "toggle_readonly_operation", "at_index": at_index})
     if err:
@@ -370,7 +357,9 @@ def toggle_readonly_operation(at_index: int) -> str:
 
 @mcp.tool()
 def toggle_hide_header_operation(at_index: int) -> str:
-    err = _send_command({"action": "toggle_hide_header_operation", "at_index": at_index})
+    err = _send_command(
+        {"action": "toggle_hide_header_operation", "at_index": at_index}
+    )
     if err:
         return f"{err}"
     return f"toggle_hide_header_operation at index {at_index}."
@@ -401,10 +390,7 @@ def main():
         help="Port for the HTTP/SSE bridge (default: 8100)",
     )
     parser.add_argument(
-        "--host",
-        type=str,
-        default="127.0.0.1",
-        help="Host for the HTTP/SSE bridge"
+        "--host", type=str, default="127.0.0.1", help="Host for the HTTP/SSE bridge"
     )
     args, _ = parser.parse_known_args()
     HTTP_PORT = args.port

@@ -199,7 +199,6 @@ Claude will automatically call the MCP tools, and the browser will update the re
 | `toggle_apply`                | Enable or disable an operation.                                             |
 | `toggle_stop`                 | Enable or disable a breakpoint after an operation.                          |
 | `toggle_show`                 | Show or hide the output of an operation.                                    |
-| `fix_operation`               | Change the type of an existing operation.                                   |
 | `toggle_readonly_operation`   | Toggle the read-only state of an operation.                                 |
 | `toggle_hide_header_operation`| Toggle the visibility of an operation's header.                             |
 | `build_asp_pipeline`          | Suggest a pipeline plan based on a description.                             |
